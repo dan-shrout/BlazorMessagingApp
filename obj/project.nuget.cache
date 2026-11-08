@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "FQrMPuQlCQ4=",
+  "success": true,
+  "projectFilePath": "/Users/danshrout/Desktop/BlazorMessagingApp/BlazorMessagingApp.csproj",
+  "expectedPackageFiles": [
+    "/Users/danshrout/.nuget/packages/microsoft.aspnetcore.app.internal.assets/10.0.14/microsoft.aspnetcore.app.internal.assets.10.0.14.nupkg.sha512"
+  ],
+  "logs": []
+}
