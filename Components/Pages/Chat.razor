@@ -1,0 +1,222 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@using BlazorMessagingApp.Models
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager Navigation
+
+<PageTitle>Chat</PageTitle>
+
+@if (!joined)
+{
+    <div class="join-card">
+        <h1>Join a chat</h1>
+        <form @onsubmit="JoinAsync">
+            <label>Display name
+                <input class="form-control" @bind="userName" maxlength="30" autofocus />
+            </label>
+            <label>Room
+                <input class="form-control" @bind="roomName" maxlength="50" list="rooms" />
+                <datalist id="rooms">
+                    @foreach (var r in SuggestedRooms)
+                    {
+                        <option value="@r"></option>
+                    }
+                </datalist>
+            </label>
+            <button class="btn btn-primary" type="submit"
+                    disabled="@(string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(roomName))">
+                Join
+            </button>
+            @if (error is not null)
+            {
+                <p class="text-danger">@error</p>
+            }
+        </form>
+    </div>
+}
+else
+{
+    <div class="chat">
+        <header class="chat-header">
+            <strong>#@roomName</strong>
+            <span class="status @(IsConnected ? "online" : "offline")">@(connection?.State)</span>
+            <button class="btn btn-sm btn-outline-secondary" @onclick="LeaveAsync">Leave</button>
+        </header>
+
+        <div class="chat-body">
+            <div class="messages" @ref="messageList">
+                @foreach (var item in items)
+                {
+                    @if (item.Message is { } m)
+                    {
+                        <div class="msg @(m.User == userName ? "mine" : "")">
+                            <div class="meta">
+                                <span class="author">@m.User</span>
+                                <span class="time">@m.SentAt.ToLocalTime().ToString("t")</span>
+                            </div>
+                            <div class="text">@m.Text</div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="notice">@item.Notice</div>
+                    }
+                }
+            </div>
+
+            <aside class="users">
+                <h6>Online (@users.Length)</h6>
+                <ul>
+                    @foreach (var u in users)
+                    {
+                        <li>@u</li>
+                    }
+                </ul>
+            </aside>
+        </div>
+
+        <div class="typing">@(typingUsers.Count > 0 ? $"{string.Join(", ", typingUsers.Keys)} typing…" : "")</div>
+
+        <form class="composer" @onsubmit="SendAsync">
+            <input class="form-control" placeholder="Type a message" @bind="draft" @bind:event="oninput" @bind:after="OnDraftInput" autocomplete="off" disabled="@(!IsConnected)" />
+            <button class="btn btn-primary" type="submit"
+                    disabled="@(!IsConnected || string.IsNullOrWhiteSpace(draft))">Send</button>
+        </form>
+    </div>
+}
+
+@code {
+    private static readonly string[] SuggestedRooms = ["general", "random", "help"];
+
+    private record Item(ChatMessage? Message = null, string? Notice = null);
+
+    private HubConnection? connection;
+    private ElementReference messageList;
+    private readonly List<Item> items = [];
+    private readonly Dictionary<string, DateTime> typingUsers = new(StringComparer.OrdinalIgnoreCase);
+    private string[] users = [];
+    private string userName = "";
+    private string roomName = "general";
+    private string draft = "";
+    private string? error;
+    private bool joined;
+    private DateTime lastTypingSent = DateTime.MinValue;
+    private bool scrollPending;
+
+    private bool IsConnected => connection?.State == HubConnectionState.Connected;
+
+    private async Task JoinAsync()
+    {
+        error = null;
+        userName = userName.Trim();
+        roomName = roomName.Trim().ToLowerInvariant();
+
+        try
+        {
+            connection = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("/chathub"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            connection.On<ChatMessage>("ReceiveMessage", async m =>
+            {
+                typingUsers.Remove(m.User);
+                items.Add(new Item(Message: m));
+                await Refresh(scroll: true);
+            });
+            connection.On<string>("UserJoined", async u => { items.Add(new Item(Notice: $"{u} joined")); await Refresh(true); });
+            connection.On<string>("UserLeft", async u => { items.Add(new Item(Notice: $"{u} left")); await Refresh(true); });
+            connection.On<string[]>("PresenceChanged", async list => { users = list; await Refresh(); });
+            connection.On<string>("UserTyping", OnUserTyping);
+
+            // After an automatic reconnect the server has forgotten us, so rejoin the room.
+            connection.Reconnected += async _ => await EnterRoomAsync();
+            connection.Reconnecting += _ => Refresh();
+            connection.Closed += _ => Refresh();
+
+            await connection.StartAsync();
+            await EnterRoomAsync();
+            joined = true;
+        }
+        catch (Exception ex)
+        {
+            error = $"Could not join: {ex.Message}";
+            await DisposeConnectionAsync();
+        }
+    }
+
+    private async Task EnterRoomAsync()
+    {
+        var history = await connection!.InvokeAsync<List<ChatMessage>>("JoinRoom", roomName, userName);
+        items.Clear();
+        items.AddRange(history.Select(m => new Item(Message: m)));
+        await Refresh(scroll: true);
+    }
+
+    private async Task SendAsync()
+    {
+        var text = draft.Trim();
+        if (text.Length == 0 || !IsConnected) return;
+        draft = "";
+        await connection!.SendAsync("SendMessage", text);
+    }
+
+    private async Task OnDraftInput()
+    {
+        if (!IsConnected || DateTime.UtcNow - lastTypingSent < TimeSpan.FromSeconds(2)) return;
+        lastTypingSent = DateTime.UtcNow;
+        await connection!.SendAsync("Typing");
+    }
+
+    private async Task OnUserTyping(string user)
+    {
+        var stamp = DateTime.UtcNow;
+        typingUsers[user] = stamp;
+        await Refresh();
+
+        await Task.Delay(3000);
+        if (typingUsers.TryGetValue(user, out var latest) && latest == stamp)
+        {
+            typingUsers.Remove(user);
+            await Refresh();
+        }
+    }
+
+    private async Task LeaveAsync()
+    {
+        await DisposeConnectionAsync();
+        items.Clear();
+        users = [];
+        typingUsers.Clear();
+        joined = false;
+    }
+
+    private Task Refresh(bool scroll = false)
+    {
+        scrollPending |= scroll;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (scrollPending)
+        {
+            scrollPending = false;
+            await JS.InvokeVoidAsync("chatScrollToBottom", messageList);
+        }
+    }
+
+    private async Task DisposeConnectionAsync()
+    {
+        if (connection is not null)
+        {
+            await connection.DisposeAsync();
+            connection = null;
+        }
+    }
+
+    public async ValueTask DisposeAsync() => await DisposeConnectionAsync();
+
+    [Inject] private IJSRuntime JS { get; set; } = default!;
+}

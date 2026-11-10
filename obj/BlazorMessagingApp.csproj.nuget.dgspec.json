@@ -52,6 +52,14 @@
               "target": "Package",
               "version": "[10.0.14, )",
               "autoReferenced": true
+            },
+            "Microsoft.AspNetCore.SignalR.Client": {
+              "target": "Package",
+              "version": "[10.0.14, )"
+            },
+            "Microsoft.EntityFrameworkCore.Sqlite": {
+              "target": "Package",
+              "version": "[10.0.14, )"
             }
           },
           "imports": [

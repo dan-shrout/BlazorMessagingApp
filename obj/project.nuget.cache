@@ -1,10 +1,25 @@
 {
   "version": 2,
-  "dgSpecHash": "FQrMPuQlCQ4=",
+  "dgSpecHash": "2H5xwZ6fynY=",
   "success": true,
   "projectFilePath": "/Users/danshrout/Desktop/BlazorMessagingApp/BlazorMessagingApp.csproj",
   "expectedPackageFiles": [
-    "/Users/danshrout/.nuget/packages/microsoft.aspnetcore.app.internal.assets/10.0.14/microsoft.aspnetcore.app.internal.assets.10.0.14.nupkg.sha512"
+    "/Users/danshrout/.nuget/packages/microsoft.aspnetcore.app.internal.assets/10.0.14/microsoft.aspnetcore.app.internal.assets.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.aspnetcore.http.connections.client/10.0.14/microsoft.aspnetcore.http.connections.client.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.aspnetcore.signalr.client/10.0.14/microsoft.aspnetcore.signalr.client.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.aspnetcore.signalr.client.core/10.0.14/microsoft.aspnetcore.signalr.client.core.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.data.sqlite.core/10.0.14/microsoft.data.sqlite.core.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.entityframeworkcore/10.0.14/microsoft.entityframeworkcore.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.entityframeworkcore.abstractions/10.0.14/microsoft.entityframeworkcore.abstractions.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.entityframeworkcore.analyzers/10.0.14/microsoft.entityframeworkcore.analyzers.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.entityframeworkcore.relational/10.0.14/microsoft.entityframeworkcore.relational.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.entityframeworkcore.sqlite/10.0.14/microsoft.entityframeworkcore.sqlite.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.entityframeworkcore.sqlite.core/10.0.14/microsoft.entityframeworkcore.sqlite.core.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/microsoft.extensions.dependencymodel/10.0.14/microsoft.extensions.dependencymodel.10.0.14.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/sqlitepclraw.bundle_e_sqlite3/2.1.13/sqlitepclraw.bundle_e_sqlite3.2.1.13.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/sqlitepclraw.core/2.1.13/sqlitepclraw.core.2.1.13.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/sqlitepclraw.lib.e_sqlite3/2.1.13/sqlitepclraw.lib.e_sqlite3.2.1.13.nupkg.sha512",
+    "/Users/danshrout/.nuget/packages/sqlitepclraw.provider.e_sqlite3/2.1.13/sqlitepclraw.provider.e_sqlite3.2.1.13.nupkg.sha512"
   ],
   "logs": []
 }

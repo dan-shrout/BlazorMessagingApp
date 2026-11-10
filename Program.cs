@@ -1,4 +1,7 @@
 using BlazorMessagingApp.Components;
+using BlazorMessagingApp.Data;
+using BlazorMessagingApp.Hubs;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -6,7 +9,17 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<PresenceTracker>();
+builder.Services.AddDbContext<ChatDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("Chat") ?? "Data Source=chat.db"));
+
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    scope.ServiceProvider.GetRequiredService<ChatDbContext>().Database.EnsureCreated();
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -23,5 +36,7 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+app.MapHub<ChatHub>("/chathub");
 
 app.Run();

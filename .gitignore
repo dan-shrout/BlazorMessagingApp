@@ -1,0 +1,5 @@
+
+chat.db*
+bin/
+obj/
+**/.DS_Store
