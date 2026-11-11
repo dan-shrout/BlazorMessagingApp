@@ -1,9 +1,14 @@
 @page "/"
 @rendermode InteractiveServer
 @implements IAsyncDisposable
+@using BlazorMessagingApp.Auth
+@using BlazorMessagingApp.Hubs
 @using BlazorMessagingApp.Models
+@using Microsoft.AspNetCore.SignalR
 @using Microsoft.AspNetCore.SignalR.Client
 @inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthState
+@inject HubTicketStore Tickets
 
 <PageTitle>Chat</PageTitle>
 
@@ -12,9 +17,7 @@
     <div class="join-card">
         <h1>Join a chat</h1>
         <form @onsubmit="JoinAsync">
-            <label>Display name
-                <input class="form-control" @bind="userName" maxlength="30" autofocus />
-            </label>
+            <p>Signed in as <strong>@userName</strong></p>
             <label>Room
                 <input class="form-control" @bind="roomName" maxlength="50" list="rooms" />
                 <datalist id="rooms">
@@ -25,7 +28,7 @@
                 </datalist>
             </label>
             <button class="btn btn-primary" type="submit"
-                    disabled="@(string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(roomName))">
+                    disabled="@string.IsNullOrWhiteSpace(roomName)">
                 Join
             </button>
             @if (error is not null)
@@ -39,47 +42,82 @@ else
 {
     <div class="chat">
         <header class="chat-header">
-            <strong>#@roomName</strong>
+            <strong>@(dmPartner is null ? $"#{roomName}" : $"✉ {dmPartner}")</strong>
             <span class="status @(IsConnected ? "online" : "offline")">@(connection?.State)</span>
             <button class="btn btn-sm btn-outline-secondary" @onclick="LeaveAsync">Leave</button>
+            <form method="post" action="/logout">
+                <button class="btn btn-sm btn-outline-danger" type="submit">Log out</button>
+            </form>
         </header>
 
         <div class="chat-body">
             <div class="messages" @ref="messageList">
-                @foreach (var item in items)
+                @foreach (var item in CurrentItems)
                 {
-                    @if (item.Message is { } m)
+                    @if (!item.Notice)
                     {
-                        <div class="msg @(m.User == userName ? "mine" : "")">
+                        <div class="msg @(item.User == userName ? "mine" : "")">
                             <div class="meta">
-                                <span class="author">@m.User</span>
-                                <span class="time">@m.SentAt.ToLocalTime().ToString("t")</span>
+                                <span class="author">@item.User</span>
+                                <span class="time">@item.SentAt.ToLocalTime().ToString("t")</span>
                             </div>
-                            <div class="text">@m.Text</div>
+                            <div class="text">@item.Text</div>
                         </div>
                     }
                     else
                     {
-                        <div class="notice">@item.Notice</div>
+                        <div class="notice">@item.Text</div>
                     }
                 }
             </div>
 
             <aside class="users">
+                <button class="side-item @(dmPartner is null ? "active" : "")" @onclick="ShowRoom"># @roomName</button>
+
                 <h6>Online (@users.Length)</h6>
                 <ul>
                     @foreach (var u in users)
                     {
-                        <li>@u</li>
+                        @if (IsMe(u))
+                        {
+                            <li class="me">@u (you)</li>
+                        }
+                        else
+                        {
+                            <li><button class="side-item" title="Send a private message" @onclick="() => OpenDmAsync(u)">@u</button></li>
+                        }
                     }
                 </ul>
+
+                <h6>Private messages</h6>
+                <ul>
+                    @foreach (var c in conversations)
+                    {
+                        <li>
+                            <button class="side-item @(IsPartner(c) ? "active" : "")" @onclick="() => OpenDmAsync(c)">
+                                @c
+                                @if (unread.GetValueOrDefault(c) > 0)
+                                {
+                                    <span class="unread">@unread[c]</span>
+                                }
+                            </button>
+                        </li>
+                    }
+                </ul>
+                <form @onsubmit="StartDmAsync">
+                    <input class="form-control form-control-sm" placeholder="Message a username" @bind="newDm" autocomplete="off" />
+                </form>
+                @if (dmError is not null)
+                {
+                    <p class="text-danger small">@dmError</p>
+                }
             </aside>
         </div>
 
-        <div class="typing">@(typingUsers.Count > 0 ? $"{string.Join(", ", typingUsers.Keys)} typing…" : "")</div>
+        <div class="typing">@(dmPartner is null && typingUsers.Count > 0 ? $"{string.Join(", ", typingUsers.Keys)} typing…" : "")</div>
 
         <form class="composer" @onsubmit="SendAsync">
-            <input class="form-control" placeholder="Type a message" @bind="draft" @bind:event="oninput" @bind:after="OnDraftInput" autocomplete="off" disabled="@(!IsConnected)" />
+            <input class="form-control" placeholder="@(dmPartner is null ? "Type a message" : $"Message {dmPartner}")" @bind="draft" @bind:event="oninput" @bind:after="OnDraftInput" autocomplete="off" disabled="@(!IsConnected)" />
             <button class="btn btn-primary" type="submit"
                     disabled="@(!IsConnected || string.IsNullOrWhiteSpace(draft))">Send</button>
         </form>
@@ -89,44 +127,71 @@ else
 @code {
     private static readonly string[] SuggestedRooms = ["general", "random", "help"];
 
-    private record Item(ChatMessage? Message = null, string? Notice = null);
+    private record Item(string? User, string Text, DateTime SentAt = default, bool Notice = false);
 
     private HubConnection? connection;
     private ElementReference messageList;
-    private readonly List<Item> items = [];
+    private readonly List<Item> items = [];      // room messages
+    private readonly List<Item> dmItems = [];    // messages of the open private conversation
+    private readonly List<string> conversations = [];
+    private readonly Dictionary<string, int> unread = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> typingUsers = new(StringComparer.OrdinalIgnoreCase);
     private string[] users = [];
     private string userName = "";
+    private string userId = "";
     private string roomName = "general";
     private string draft = "";
+    private string newDm = "";
+    private string? dmPartner;
+    private string? dmError;
     private string? error;
     private bool joined;
     private DateTime lastTypingSent = DateTime.MinValue;
     private bool scrollPending;
 
     private bool IsConnected => connection?.State == HubConnectionState.Connected;
+    private List<Item> CurrentItems => dmPartner is null ? items : dmItems;
+    private bool IsMe(string name) => string.Equals(name, userName, StringComparison.OrdinalIgnoreCase);
+    private bool IsPartner(string name) => string.Equals(name, dmPartner, StringComparison.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState.GetAuthenticationStateAsync()).User;
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            Navigation.NavigateTo("/login");
+            return;
+        }
+
+        userName = user.Identity.Name ?? "";
+        userId = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "";
+    }
 
     private async Task JoinAsync()
     {
         error = null;
-        userName = userName.Trim();
         roomName = roomName.Trim().ToLowerInvariant();
 
         try
         {
             connection = new HubConnectionBuilder()
-                .WithUrl(Navigation.ToAbsoluteUri("/chathub"))
+                .WithUrl(Navigation.ToAbsoluteUri("/chathub"), options =>
+                {
+                    // Called on every (re)connect, so each attempt gets a fresh ticket.
+                    options.AccessTokenProvider = () => Task.FromResult<string?>(Tickets.Issue(userId, userName));
+                })
                 .WithAutomaticReconnect()
                 .Build();
 
             connection.On<ChatMessage>("ReceiveMessage", async m =>
             {
                 typingUsers.Remove(m.User);
-                items.Add(new Item(Message: m));
-                await Refresh(scroll: true);
+                items.Add(new Item(m.User, m.Text, m.SentAt));
+                await Refresh(scroll: dmPartner is null);
             });
-            connection.On<string>("UserJoined", async u => { items.Add(new Item(Notice: $"{u} joined")); await Refresh(true); });
-            connection.On<string>("UserLeft", async u => { items.Add(new Item(Notice: $"{u} left")); await Refresh(true); });
+            connection.On<DirectMessage>("ReceiveDirectMessage", OnDirectMessage);
+            connection.On<string>("UserJoined", async u => { items.Add(new Item(null, $"{u} joined", Notice: true)); await Refresh(dmPartner is null); });
+            connection.On<string>("UserLeft", async u => { items.Add(new Item(null, $"{u} left", Notice: true)); await Refresh(dmPartner is null); });
             connection.On<string[]>("PresenceChanged", async list => { users = list; await Refresh(); });
             connection.On<string>("UserTyping", OnUserTyping);
 
@@ -148,9 +213,19 @@ else
 
     private async Task EnterRoomAsync()
     {
-        var history = await connection!.InvokeAsync<List<ChatMessage>>("JoinRoom", roomName, userName);
+        var hub = connection!;
+        var history = await hub.InvokeAsync<List<ChatMessage>>("JoinRoom", roomName);
         items.Clear();
-        items.AddRange(history.Select(m => new Item(Message: m)));
+        items.AddRange(history.Select(m => new Item(m.User, m.Text, m.SentAt)));
+
+        var summaries = await hub.InvokeAsync<List<ConversationSummary>>("GetConversations");
+        conversations.Clear();
+        conversations.AddRange(summaries.Select(s => s.User));
+        unread.Clear();
+        foreach (var s in summaries.Where(s => s.Unread > 0)) unread[s.User] = s.Unread;
+
+        // Reload the open conversation too, so anything missed while disconnected shows up.
+        if (dmPartner is not null) await LoadConversationAsync(dmPartner);
         await Refresh(scroll: true);
     }
 
@@ -159,12 +234,94 @@ else
         var text = draft.Trim();
         if (text.Length == 0 || !IsConnected) return;
         draft = "";
-        await connection!.SendAsync("SendMessage", text);
+
+        if (dmPartner is null)
+        {
+            await connection!.SendAsync("SendMessage", text);
+            return;
+        }
+
+        try { await connection!.InvokeAsync("SendDirectMessage", dmPartner, text); }
+        catch (HubException ex) { dmError = ErrorText(ex); }
     }
+
+    // ---- Private messages ----
+
+    // With detailed errors on (development) SignalR wraps the message; show just the part we wrote.
+    private static string ErrorText(HubException ex) => ex.Message.Split("HubException: ").Last();
+
+    private Task StartDmAsync()
+    {
+        var name = newDm.Trim();
+        newDm = "";
+        return name.Length == 0 ? Task.CompletedTask : OpenDmAsync(name);
+    }
+
+    private async Task OpenDmAsync(string partner)
+    {
+        dmError = null;
+        if (IsMe(partner)) { dmError = "You can't message yourself."; return; }
+
+        try
+        {
+            await LoadConversationAsync(partner);
+            await Refresh(scroll: true);
+        }
+        catch (HubException ex)
+        {
+            dmError = ErrorText(ex);
+        }
+    }
+
+    /// <summary>Loads history for a partner, opens it, and clears its unread count (the server marks it read).</summary>
+    private async Task LoadConversationAsync(string partner)
+    {
+        var convo = await connection!.InvokeAsync<Conversation>("OpenConversation", partner);
+
+        dmPartner = convo.User;
+        dmItems.Clear();
+        dmItems.AddRange(convo.Messages.Select(m => new Item(m.FromUserName, m.Text, m.SentAt)));
+        unread.Remove(convo.User);
+        TouchConversation(convo.User);
+    }
+
+    private async Task OnDirectMessage(DirectMessage m)
+    {
+        var partner = IsMe(m.FromUserName) ? m.ToUserName : m.FromUserName;
+        TouchConversation(partner);
+
+        if (IsPartner(partner))
+        {
+            dmItems.Add(new Item(m.FromUserName, m.Text, m.SentAt));
+            if (!IsMe(m.FromUserName)) await connection!.SendAsync("MarkConversationRead", partner);
+            await Refresh(scroll: true);
+        }
+        else
+        {
+            if (!IsMe(m.FromUserName)) unread[partner] = unread.GetValueOrDefault(partner) + 1;
+            await Refresh();
+        }
+    }
+
+    /// <summary>Moves a partner to the top of the conversation list, adding it if new.</summary>
+    private void TouchConversation(string partner)
+    {
+        conversations.RemoveAll(c => string.Equals(c, partner, StringComparison.OrdinalIgnoreCase));
+        conversations.Insert(0, partner);
+    }
+
+    private async Task ShowRoom()
+    {
+        dmPartner = null;
+        dmError = null;
+        await Refresh(scroll: true);
+    }
+
+    // ---- Room extras ----
 
     private async Task OnDraftInput()
     {
-        if (!IsConnected || DateTime.UtcNow - lastTypingSent < TimeSpan.FromSeconds(2)) return;
+        if (dmPartner is not null || !IsConnected || DateTime.UtcNow - lastTypingSent < TimeSpan.FromSeconds(2)) return;
         lastTypingSent = DateTime.UtcNow;
         await connection!.SendAsync("Typing");
     }
@@ -187,8 +344,13 @@ else
     {
         await DisposeConnectionAsync();
         items.Clear();
+        dmItems.Clear();
+        conversations.Clear();
+        unread.Clear();
         users = [];
         typingUsers.Clear();
+        dmPartner = null;
+        dmError = null;
         joined = false;
     }
 

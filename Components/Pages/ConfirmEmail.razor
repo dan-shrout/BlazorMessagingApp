@@ -1,0 +1,37 @@
+@page "/confirm-email"
+@using BlazorMessagingApp.Auth
+@using BlazorMessagingApp.Models
+@using Microsoft.AspNetCore.Identity
+@inject UserManager<ApplicationUser> UserManager
+
+<PageTitle>Confirm email</PageTitle>
+
+<div class="auth-card">
+    <h1>Confirm email</h1>
+    @if (succeeded)
+    {
+        <p>Thanks, your email is confirmed. You can now <a href="login">log in</a>.</p>
+    }
+    else
+    {
+        <p class="text-danger">This confirmation link is invalid or has expired.</p>
+        <p><a href="resend-confirmation">Send a new link</a></p>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery] private string? UserId { get; set; }
+    [SupplyParameterFromQuery] private string? Code { get; set; }
+    private bool succeeded;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var token = AccountEmailService.DecodeToken(Code);
+        if (UserId is null || token is null) return;
+
+        var user = await UserManager.FindByIdAsync(UserId);
+        if (user is null) return;
+
+        succeeded = (await UserManager.ConfirmEmailAsync(user, token)).Succeeded;
+    }
+}

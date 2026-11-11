@@ -1,0 +1,57 @@
+@page "/login"
+@using System.ComponentModel.DataAnnotations
+@using BlazorMessagingApp.Models
+@using Microsoft.AspNetCore.Identity
+@inject SignInManager<ApplicationUser> SignInManager
+@inject NavigationManager Navigation
+
+<PageTitle>Log in</PageTitle>
+
+<div class="auth-card">
+    <h1>Log in</h1>
+    <EditForm Model="Input" FormName="login" OnValidSubmit="LoginAsync" method="post">
+        <DataAnnotationsValidator />
+        <label>Username
+            <InputText class="form-control" @bind-Value="Input.UserName" autocomplete="username" />
+        </label>
+        <label>Password
+            <InputText type="password" class="form-control" @bind-Value="Input.Password" autocomplete="current-password" />
+        </label>
+        <ValidationSummary class="text-danger" />
+        @if (error is not null)
+        {
+            <p class="text-danger">@error</p>
+        }
+        @if (needsConfirmation)
+        {
+            <p>Your email isn't confirmed yet. <a href="resend-confirmation">Send a new confirmation link</a></p>
+        }
+        <button class="btn btn-primary" type="submit">Log in</button>
+        <p><a href="forgot-password">Forgot your password?</a></p>
+        <p>No account? <a href="register">Register</a></p>
+    </EditForm>
+</div>
+
+@code {
+    [SupplyParameterFromForm] private LoginModel Input { get; set; } = default!;
+    private string? error;
+    private bool needsConfirmation;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    private async Task LoginAsync()
+    {
+        var result = await SignInManager.PasswordSignInAsync(
+            Input.UserName, Input.Password, isPersistent: true, lockoutOnFailure: true);
+
+        if (result.Succeeded) Navigation.NavigateTo("/", forceLoad: true);
+        else if (result.IsNotAllowed) needsConfirmation = true;
+        else error = result.IsLockedOut ? "Account locked. Try again later." : "Invalid username or password.";
+    }
+
+    private class LoginModel
+    {
+        [Required] public string UserName { get; set; } = "";
+        [Required] public string Password { get; set; } = "";
+    }
+}

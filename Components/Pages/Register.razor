@@ -1,0 +1,79 @@
+@page "/register"
+@using System.ComponentModel.DataAnnotations
+@using BlazorMessagingApp.Auth
+@using BlazorMessagingApp.Models
+@using Microsoft.AspNetCore.Identity
+@inject UserManager<ApplicationUser> UserManager
+@inject AccountEmailService AccountEmails
+
+<PageTitle>Register</PageTitle>
+
+<div class="auth-card">
+    <h1>Register</h1>
+    @if (registeredEmail is not null)
+    {
+        <p>We sent a confirmation link to <strong>@registeredEmail</strong>. Confirm your email, then <a href="login">log in</a>.</p>
+    }
+    else
+    {
+        <EditForm Model="Input" FormName="register" OnValidSubmit="RegisterAsync" method="post">
+            <DataAnnotationsValidator />
+            <label>Username
+                <InputText class="form-control" @bind-Value="Input.UserName" autocomplete="username" />
+            </label>
+            <label>Email
+                <InputText type="email" class="form-control" @bind-Value="Input.Email" autocomplete="email" />
+            </label>
+            <label>Password
+                <InputText type="password" class="form-control" @bind-Value="Input.Password" autocomplete="new-password" />
+            </label>
+            <label>Confirm password
+                <InputText type="password" class="form-control" @bind-Value="Input.ConfirmPassword" autocomplete="new-password" />
+            </label>
+            <ValidationSummary class="text-danger" />
+            @foreach (var e in errors)
+            {
+                <p class="text-danger">@e</p>
+            }
+            <button class="btn btn-primary" type="submit">Create account</button>
+            <p>Already registered? <a href="login">Log in</a></p>
+        </EditForm>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromForm] private RegisterModel Input { get; set; } = default!;
+    private List<string> errors = [];
+    private string? registeredEmail;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    private async Task RegisterAsync()
+    {
+        var user = new ApplicationUser { UserName = Input.UserName, Email = Input.Email };
+        var result = await UserManager.CreateAsync(user, Input.Password);
+        if (!result.Succeeded)
+        {
+            errors = result.Errors.Select(e => e.Description).ToList();
+            return;
+        }
+
+        await AccountEmails.SendConfirmationAsync(user);
+        registeredEmail = Input.Email;
+    }
+
+    private class RegisterModel
+    {
+        [Required, StringLength(30, MinimumLength = 2)]
+        public string UserName { get; set; } = "";
+
+        [Required, EmailAddress]
+        public string Email { get; set; } = "";
+
+        [Required, DataType(DataType.Password)]
+        public string Password { get; set; } = "";
+
+        [Compare(nameof(Password), ErrorMessage = "Passwords do not match.")]
+        public string ConfirmPassword { get; set; } = "";
+    }
+}

@@ -1,0 +1,50 @@
+@page "/resend-confirmation"
+@using System.ComponentModel.DataAnnotations
+@using BlazorMessagingApp.Auth
+@using BlazorMessagingApp.Models
+@using Microsoft.AspNetCore.Identity
+@inject UserManager<ApplicationUser> UserManager
+@inject AccountEmailService AccountEmails
+
+<PageTitle>Resend confirmation</PageTitle>
+
+<div class="auth-card">
+    <h1>Resend confirmation</h1>
+    @if (sent)
+    {
+        <p>If an unconfirmed account exists for that email, we sent a new link.</p>
+        <p><a href="login">Back to log in</a></p>
+    }
+    else
+    {
+        <EditForm Model="Input" FormName="resend-confirmation" OnValidSubmit="SendAsync" method="post">
+            <DataAnnotationsValidator />
+            <label>Email
+                <InputText type="email" class="form-control" @bind-Value="Input.Email" autocomplete="email" />
+            </label>
+            <ValidationSummary class="text-danger" />
+            <button class="btn btn-primary" type="submit">Send link</button>
+        </EditForm>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromForm] private EmailModel Input { get; set; } = default!;
+    private bool sent;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    private async Task SendAsync()
+    {
+        // Same response either way, so this page can't be used to discover which emails are registered.
+        var user = await UserManager.FindByEmailAsync(Input.Email);
+        if (user is not null && !await UserManager.IsEmailConfirmedAsync(user))
+            await AccountEmails.SendConfirmationAsync(user);
+        sent = true;
+    }
+
+    private class EmailModel
+    {
+        [Required, EmailAddress] public string Email { get; set; } = "";
+    }
+}
